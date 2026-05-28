@@ -35,31 +35,54 @@
           (name object) (categories object) (no-display object)))
 
 (defun load-desktop-file (path &optional &key (main-section *main-section*))
-  (flet
-      ((get-option (config entry-name &optional (type nil))
-         (if (py-configparser:has-option-p config main-section entry-name)
-             (py-configparser:get-option
-              config main-section entry-name :type type)
-             nil)))
-    (let* ((config (py-configparser:read-files
-                    (py-configparser:make-config) (list path)))
-           (name (get-option config "Name"))
-           (entry-type (get-option config "Type"))
-           (exec (get-option config "Exec"))
-           (path (get-option config "Path"))
-           (categories (get-option config "Categories"))
-           (no-display (get-option config "NoDisplay" :boolean))
-           (only-show-in (get-option config "OnlyShowIn"))
-           (terminal (get-option config "Terminal" :boolean)))
-      (list
-       :name (if (string= name "") nil name)
-       :entry-type entry-type
-       :exec (if (string= exec "") nil exec)
-       :path path
-       :categories (if (stringp categories) (string-split ";" categories) categories)
-       :no-display no-display
-       :only-show-in (if (stringp only-show-in) (string-split ";" only-show-in) only-show-in)
-       :terminal terminal))))
+  (let ((current-section nil)
+        (data (make-hash-table :test 'equal)))
+    (with-open-file (stream path)
+      (loop for line = (read-line stream nil)
+            while line
+            do (let* ((trimmed (string-trim '(#\space #\tab) line))
+                      (len (length trimmed)))
+                 (cond
+                   ((or (zerop len)
+                        (char= (char trimmed 0) #\#))
+                    nil)
+                   ((and (> len 2)
+                         (char= (char trimmed 0) #\[)
+                         (char= (char trimmed (1- len)) #\]))
+                    (setf current-section (subseq trimmed 1 (1- len))))
+                   ((and current-section (position #\= trimmed))
+                    (let* ((pos (position #\= trimmed))
+                           (key (string-trim '(#\space #\tab)
+                                             (subseq trimmed 0 pos)))
+                           (val (string-trim '(#\space #\tab)
+                                             (subseq trimmed (1+ pos)))))
+                      (when (string= current-section main-section)
+                        (setf (gethash key data) val))))))))
+    (flet ((get-value (key &optional (type nil))
+             (let ((val (gethash key data)))
+               (when (and val (string/= val ""))
+                 (case type
+                   (:boolean (or (string-equal val "true")
+                                 (string-equal val "1")
+                                 (string-equal val "yes")))
+                   (t val))))))
+      (let* ((name (get-value "Name"))
+             (entry-type (get-value "Type"))
+             (exec (get-value "Exec"))
+             (path (get-value "Path"))
+             (categories (get-value "Categories"))
+             (no-display (get-value "NoDisplay" :boolean))
+             (only-show-in (get-value "OnlyShowIn"))
+             (terminal (get-value "Terminal" :boolean)))
+        (list
+         :name name
+         :entry-type entry-type
+         :exec exec
+         :path path
+         :categories (if categories (string-split ";" categories) nil)
+         :no-display no-display
+         :only-show-in (if only-show-in (string-split ";" only-show-in) nil)
+         :terminal terminal)))))
 
 (defgeneric make-desktop-entry (path &optional &key main-section)
   (:documentation "init entry from a .desktop file"))

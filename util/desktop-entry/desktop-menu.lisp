@@ -23,6 +23,35 @@
 (defvar *entry-list* '())
 (defvar *favorite-list* '())
 
+(defun longest-common-prefix (strings)
+  "Return the longest common prefix of STRINGS, case-insensitive."
+  (when strings
+    (let* ((first (first strings))
+           (min-len (reduce #'min (mapcar #'length strings)))
+           prefix-len)
+      (loop for i from 0 below min-len
+            when (loop for s in (rest strings)
+                       always (char-equal (char first i) (char s i)))
+              do (setf prefix-len (1+ i))
+            else do (return))
+      (subseq first 0 (or prefix-len 0)))))
+
+(defun desktop-menu-complete (menu)
+  "Complete the current input to the longest common prefix of visible menu items."
+  (let* ((items (stumpwm::menu-table menu))
+         (names (mapcar #'stumpwm::menu-element-name items)))
+    (when names
+      (let ((prefix (longest-common-prefix names)))
+        (when (and prefix (> (length prefix) 0))
+          (let ((input (stumpwm::single-menu-current-input menu)))
+            (setf (fill-pointer input) 0)
+            (loop for c across prefix
+                  do (vector-push-extend c input))
+            (stumpwm::typing-action menu nil)))))))
+
+(defvar *desktop-menu-keymap* (stumpwm:make-sparse-keymap))
+(stumpwm:define-key *desktop-menu-keymap* (stumpwm:kbd "TAB") 'desktop-menu-complete)
+
 (defgeneric add-favorite-entry (entry)
   (:documentation "add entry as favorite"))
 
@@ -76,19 +105,21 @@
                *main-categories*)
            :min-count min-entries-in-category))
          (menu (loop for item in menu
-                  when (not (car item))
-                  append (loop for entry in (cdr item)
-                            collect (cons (name entry)
+                  when (not (first item))
+                  append (loop for entry in (rest item)
+                            collect (list (name entry)
                                           entry))
                   else
-                  collect (cons (car item) (car item))))
+                  collect (list (first item) (first item))))
          (menu (sort-menu menu))
          (menu (if categories
                    menu
-                   (cons
-                    (cons *favorite-category*
-                          *favorite-category*)
-                    menu))))
+                   (append
+                    (list (list *favorite-category*
+                                *favorite-category*))
+                    menu
+                    (loop for entry in entry-list
+                          collect (list (name entry) entry))))))
     menu))
 
 (defun sort-menu (menu)
@@ -107,7 +138,7 @@
               ((and (typep x 'desktop-entry)
                     (typep y 'desktop-entry))
                (string-lessp (name x) (name y)))
-              (T nil))) :key #'cdr))
+              (T nil))) :key #'second))
 
 
 (stumpwm:defcommand show-desktop-menu ()
@@ -117,25 +148,25 @@
     (loop
        (let* ((menu (build-menu categories))
               (menu (if categories
-                        (append menu (list (cons ".." :up)
-                                           (cons "...." nil)))
-                        (append menu (list (cons ".." nil)))))
+                        (append menu (list (list ".." :up)
+                                           (list "...." nil)))
+                        (append menu (list (list ".." nil)))))
               (menu (loop for item in menu
                        collect
-                         (if (stringp (cdr item))
-                             (cons (concatenate 'string (car item) " >>")
-                                   (cdr item))
+                         (if (stringp (second item))
+                             (list (concatenate 'string (first item) " >>")
+                                   (second item))
                              item)))
-              (menu (loop for item in menu
-                       collect (cons
-                                (concatenate 'string "^[^6*^b" (car item) "^]")
-                                (cdr item))))
               (item (handler-case
-                        (cdr (stumpwm:select-from-menu
-                              (stumpwm:current-screen)
-                              menu
-                              (format nil "/~{~A/~}:" (reverse categories))))
-                      (error (condition) nil))))
+                        (second (stumpwm:select-from-menu
+                                  (stumpwm:current-screen)
+                                  menu
+                                  (format nil "/~{~A/~}:" (reverse categories))
+                                  0
+                                  *desktop-menu-keymap*))
+                      (error (condition)
+                        (stumpwm:message "~A" condition)
+                        nil))))
          (cond
            ((not item) (return))
            ((stringp item) (push item categories))

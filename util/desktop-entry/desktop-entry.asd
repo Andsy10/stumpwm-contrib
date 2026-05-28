@@ -4,7 +4,7 @@
   :description "desktop-entry"
   :author "fqguozhou@gmail.com"
   :license "GPLv3"
-  :depends-on (#:stumpwm #:py-configparser #:cl-ppcre)
+  :depends-on (#:stumpwm #:cl-ppcre)
   :serial t
   :components ((:file "package")
                (:file "desktop-entry")
