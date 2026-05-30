@@ -197,8 +197,8 @@
 
 (defun update-dpi (font drawable)
   (multiple-value-bind (hdpi vdpi) (screen-default-dpi (drawable-screen drawable))
-    (when (or (not (eq (font-hdpi font) hdpi))
-              (not (eq (font-vdpi font) vdpi)))
+    (when (or (not (eql (font-hdpi font) hdpi))
+              (not (eql (font-vdpi font) vdpi)))
       (ttf-setfontsizedpi (sdl2-ptr font) (font-size font) hdpi vdpi)
       (setf (font-hdpi font) hdpi)
       (setf (font-vdpi font) vdpi))))
@@ -220,6 +220,7 @@
                                text &rest keys
                                &key (start 0) end translate width size)
   (declare (ignorable keys start end translate width size))
+  (declare (optimize (safety 0) (speed 3)))
   (when (string= text "")
     (return-from draw-image-glyphs))
   ; Update the DPI in case it has changed (i.e. rendering to another screen).
@@ -239,9 +240,11 @@
       (sdl-locksurface surf)
       (let ((pixels (foreign-slot-value surf '(:struct sdl-surface) 'pixels)))
         (dotimes (jj height)
-          (dotimes (ii width)
-            (let ((alpha (mem-ref pixels :uint8 (+ (* jj pitch) (* ii 4) 3))))
-              (setf (aref data jj ii) alpha)))))
+          ; Calculate an offset to the first element of the current row.
+          (let ((offset (+ 3 (* jj pitch))))
+            (dotimes (ii width)
+              (let ((alpha (mem-ref pixels :uint8 (+ offset (* ii 4)))))
+                (setf (aref data jj ii) alpha))))))
       (sdl-unlocksurface surf)
       (sdl-freesurface surf)
       (let* ((display (xlib:drawable-display drawable))
