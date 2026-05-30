@@ -61,7 +61,7 @@ HEIGHT are subtracted."
       ;; otherwise stumpwm will crash. Also, only modify window dimensions
       ;; if needed (i.e. window at least fills frame minus gap).
       (when (and (< ow width)
-                 (>= width (- (frame-width frame) ow)))
+                 (>= width (- (stumpwm::frame-display-width (window-group win) frame) ow)))
         (setf width (- width ow)))
       (when (and (< oh height)
                  (>= height (- (stumpwm::frame-display-height (window-group win) frame) oh)))
@@ -87,7 +87,7 @@ HEIGHT are subtracted."
             (setf (xlib:drawable-width (window-parent win)) (window-width win)
                   (xlib:drawable-height (window-parent win)) (window-height win))
             (let ((frame (stumpwm::window-frame win)))
-              (setf (xlib:drawable-width (window-parent win)) (- (frame-width frame)
+              (setf (xlib:drawable-width (window-parent win)) (- (stumpwm::frame-display-width (window-group win) frame)
                                                                  (* 2 (xlib:drawable-border-width (window-parent win)))
                                                                  ow)
                     (xlib:drawable-height (window-parent win)) (- (stumpwm::frame-display-height (window-group win) frame)
@@ -100,6 +100,7 @@ HEIGHT are subtracted."
                                     wy
                                     (- (xlib:drawable-height (window-parent win)) height wy))
                               :cardinal 32))
+      (stumpwm::update-decoration win)
       (update-configuration win))))
 
 (defun reset-all-windows ()
