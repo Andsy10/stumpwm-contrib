@@ -3,7 +3,7 @@
 (asdf:defsystem #:sdl-fonts
   :serial t
   :description "SDL-based TTF font rendering for StumpWM."
-  :version "1.0.0"
+  :version "1.0.1"
   :author "Mihail Ivanchev <contact@ivanchev.net>"
   :license "MIT"
   :depends-on (#:stumpwm #:cffi #:cffi-libffi)
