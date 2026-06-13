@@ -31,14 +31,12 @@
   "Returns a list containing 3 values:
 total amount of memory, allocated memory, allocated/total ratio"
   (let ((allocated 0))
-    (multiple-value-bind (mem-total mem-free buffers cached)
-	(with-open-file (file #P"/proc/meminfo" :if-does-not-exist nil)
-	  (values
-	   (read-from-string (get-proc-fd-field file "MemTotal"))
-	   (read-from-string (get-proc-fd-field file "MemFree"))
-	   (read-from-string (get-proc-fd-field file "Buffers"))
-	   (read-from-string (get-proc-fd-field file "Cached"))))
-      (setq allocated (- mem-total (+ mem-free buffers cached)))
+    (multiple-value-bind (mem-total mem-available)
+        (with-open-file (file #P"/proc/meminfo" :if-does-not-exist nil)
+          (values
+           (read-from-string (get-proc-fd-field file "MemTotal"))
+           (read-from-string (get-proc-fd-field file "MemAvailable"))))
+      (setq allocated (- mem-total mem-available))
       (list mem-total allocated (/ allocated mem-total)))))
 
 (defun fmt-mem-allocated (mem)
