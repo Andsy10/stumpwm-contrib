@@ -34,18 +34,31 @@ HEIGHT are subtracted."
   (let ((x *inner-gaps-size*)
         (y *inner-gaps-size*)
         (width (* 2 *inner-gaps-size*))
-        (height (* 2 *inner-gaps-size*)))
-    (if (window-edging-p win :top)
-        (setf y (+ y *outer-gaps-size*)
-              height (+ height *outer-gaps-size*)))
-    (if (window-edging-p win :bottom)
-        (setf height (+ height *outer-gaps-size*)))
-    (if (window-edging-p win :left)
-        (setf x (+ x *outer-gaps-size*)
-              width (+ width *outer-gaps-size*)))
-    (if (window-edging-p win :right)
-        (setf width (+ width *outer-gaps-size*)))
-    (values x y width height)))
+        (height (* 2 *inner-gaps-size*))
+        (head (stumpwm::frame-head (stumpwm:window-group win) (stumpwm::window-frame win))))
+    (flet ((edge-offset-at-top ()
+             (let ((ml (stumpwm::head-mode-line head)))
+               (if (and ml (eq (stumpwm::mode-line-position ml) :top)
+                        (not (eq (stumpwm::mode-line-mode ml) :hidden)))
+                   *inner-gaps-size*
+                   (+ *outer-gaps-size* *head-gaps-size*))))
+           (edge-offset-at-bottom ()
+             (let ((ml (stumpwm::head-mode-line head)))
+               (if (and ml (eq (stumpwm::mode-line-position ml) :bottom)
+                        (not (eq (stumpwm::mode-line-mode ml) :hidden)))
+                   *inner-gaps-size*
+                   (+ *outer-gaps-size* *head-gaps-size*)))))
+      (if (window-edging-p win :top)
+          (setf y (+ y (edge-offset-at-top))
+                height (+ height (edge-offset-at-top))))
+      (if (window-edging-p win :bottom)
+          (setf height (+ height (edge-offset-at-bottom))))
+      (if (window-edging-p win :left)
+          (setf x (+ x *outer-gaps-size* *head-gaps-size*)
+                width (+ width *outer-gaps-size* *head-gaps-size*)))
+      (if (window-edging-p win :right)
+          (setf width (+ width *outer-gaps-size* *head-gaps-size*)))
+      (values x y width height))))
 
 (defun stumpwm::maximize-window (win)
   "Redefined gaps aware maximize function."
@@ -108,67 +121,56 @@ HEIGHT are subtracted."
   (mapcar #'stumpwm::maximize-window
           (stumpwm::only-tile-windows (stumpwm:screen-windows (current-screen)))))
 
-;; Redefined neighbour for working with head gaps
-(defun stumpwm::neighbour (direction frame frameset)
-  "Returns the best neighbour of FRAME in FRAMESET on the DIRECTION edge.
-   Valid directions are :UP, :DOWN, :LEFT, :RIGHT.
-   eg: (NEIGHBOUR :UP F FS) finds the frame in FS that is the 'best'
-   neighbour above F."
-  (let ((src-edge (ecase direction
-                    (:up :top)
-                    (:down :bottom)
-                    (:left :left)
-                    (:right :right)))
-        (opposite (ecase direction
-                    (:up :bottom)
-                    (:down :top)
-                    (:left :right)
-                    (:right :left)))
-        (best-frame nil)
-        (best-overlap 0)
-        (nearest-edge-diff nil))
-    (multiple-value-bind (src-s src-e src-offset)
-        (stumpwm::get-edge frame src-edge)
+(defun stumpwm::resize-mode-line (mode-line)
+  "Redefined gaps aware resize-mode-line function."
+  (when (eq (stumpwm::mode-line-mode mode-line) :stump)
+    (setf (xlib:drawable-height (stumpwm::mode-line-window mode-line))
+          (+ (* 2 stumpwm::*mode-line-pad-y*)
+             (nth-value 1 (stumpwm::rendered-size
+                           (stumpwm::split-string (stumpwm::mode-line-contents mode-line)
+                                                    (string #\Newline))
+                           (stumpwm::mode-line-cc mode-line))))))
+  (with-accessors ((window stumpwm::mode-line-window)
+                   (head stumpwm::mode-line-head)
+                   (position stumpwm::mode-line-position)
+                   (height stumpwm::mode-line-height)
+                   (factor stumpwm::mode-line-factor))
+      mode-line
+    (let* ((gap (if *gaps-on* *head-gaps-size* 0))
+           (border (* 2 (xlib:drawable-border-width window)))
+           (win-height (min (xlib:drawable-height window)
+                            (truncate (stumpwm::head-height head) 4)))
+           (total-height (+ win-height border gap)))
+      (setf (xlib:drawable-width window) (- (stumpwm::head-width head)
+                                            border
+                                            (* 2 gap))
+            (xlib:drawable-height window) win-height
+            height total-height
+            factor (- 1 (/ total-height
+                           (stumpwm::head-height head)))
+            (xlib:drawable-x window) (+ (stumpwm::head-x head) gap)
+            (xlib:drawable-y window) (if (eq position :top)
+                                          (+ (stumpwm::head-y head) gap)
+                                          (- (+ (stumpwm::head-y head)
+                                                (stumpwm::head-height head))
+                                             total-height))))))
 
-      ;; Get the edge distance closest in the required direction
-      (dolist (f frameset)
-        (multiple-value-bind (s e offset)
-            (stumpwm::get-edge f opposite)
-          (let ((offset-diff (abs (- src-offset offset))))
-            (if nearest-edge-diff
-                (if (< offset-diff nearest-edge-diff)
-                    (setf nearest-edge-diff offset-diff))
-                (setf nearest-edge-diff offset-diff)))))
 
-      (dolist (f frameset)
-        (multiple-value-bind (s e offset)
-            (stumpwm::get-edge f opposite)
-          (let ((overlap (- (min src-e e)
-                            (max src-s s))))
-            ;; Two edges are neighbours if they have the same offset (after
-            ;; accounting for gaps) and their starts and ends overlap. We want
-            ;; to find the neighbour that overlaps the most.
-            (when (and (= (abs (- src-offset offset)) nearest-edge-diff)
-                       (> overlap best-overlap))
-              (setf best-frame f)
-              (setf best-overlap overlap))))))
-    best-frame))
+(defun refresh-mode-lines-gaps ()
+  "Recompute geometry and redraw all mode-lines."
+  (dolist (ml stumpwm::*mode-lines*)
+    (stumpwm::resize-mode-line ml)
+    (stumpwm::sync-mode-line ml)
+    (stumpwm::redraw-mode-line ml t)))
 
-(defun add-head-gaps ()
-  "Add extra gap to the head boundary"
-  (mapcar (lambda (head)
-            (let* ((height (stumpwm::head-height head))
-                   (width (stumpwm::head-width head))
-                   (x (stumpwm::head-x head))
-                   (y (stumpwm::head-y head))
-                   (gap *head-gaps-size*)
-                   (new-height (- height (* 2 gap)))
-                   (new-width (- width (* 2 gap))))
-              (stumpwm::resize-head
-               (stumpwm::head-number head)
-               (+ x gap) (+ y gap)
-               new-width new-height)))
-          (screen-heads (current-screen))))
+(defun refresh-all-head-frames ()
+  "Refresh frame layouts for all heads."
+  (dolist (screen stumpwm::*screen-list*)
+    (dolist (group (stumpwm::screen-groups screen))
+      (dolist (head (stumpwm::screen-heads screen))
+        (stumpwm::group-before-resize-head group head head)
+        (stumpwm::group-after-resize-head group head))
+      (stumpwm::sync-all-frame-windows group))))
 
 (defcommand toggle-gaps () ()
   "Toggle gaps"
@@ -179,11 +181,15 @@ HEIGHT are subtracted."
 (defcommand toggle-gaps-on () ()
   "Turn gaps on"
   (setf *gaps-on* t)
-  (progn
-    (add-head-gaps)
-    (reset-all-windows)))
+  (refresh-mode-lines-gaps)
+  (refresh-all-head-frames)
+  (stumpwm:refresh-heads)
+  (reset-all-windows))
 
 (defcommand toggle-gaps-off () ()
   "Turn gaps off"
   (setf *gaps-on* nil)
-  (stumpwm:refresh-heads))
+  (refresh-mode-lines-gaps)
+  (refresh-all-head-frames)
+  (stumpwm:refresh-heads)
+  (reset-all-windows))
