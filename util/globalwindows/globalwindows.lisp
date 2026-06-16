@@ -15,15 +15,8 @@
     windows))
 
 (defun goto-window (window)
-  "Raise the window win and select its frame.  For now, it does not
-select the screen."
-  (let* ((group (window-group window))
-         (frame (window-frame window))
-         (old-frame (tile-group-current-frame group)))
-    (frame-raise-window group frame window)
-    (focus-all window)
-    (unless (eq frame old-frame)
-      (show-frame-indicator group))))
+  "Focus the window, switching to its group and screen if necessary."
+  (focus-all window))
 
 (define-stumpwm-type :global-window-names (input prompt)
   (labels
@@ -50,7 +43,10 @@ select the screen."
 
 (with-global-windowlist global-pull-windowlist
   "Global windowlist for pulling windows to the current frame."
-  (when (not (equalp (window-group window)
-                     (current-group)))
-    (move-window-to-group window (current-group)))
-  (pull-window window))
+  (let ((current-group (current-group)))
+    (when (not (equalp (window-group window) current-group))
+      (move-window-to-group window current-group))
+    (if (and (typep current-group 'stumpwm::tile-group)
+             (typep window 'stumpwm::tile-window))
+        (pull-window window)
+        (group-focus-window current-group window))))
